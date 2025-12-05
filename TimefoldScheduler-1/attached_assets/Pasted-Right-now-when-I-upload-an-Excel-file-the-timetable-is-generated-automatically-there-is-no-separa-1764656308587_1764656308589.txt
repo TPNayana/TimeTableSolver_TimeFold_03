@@ -1,0 +1,65 @@
+Right now, when I upload an Excel file, the timetable is generated automatically (there is no separate “Generate Schedule” button). I want to be 100% sure that this auto-scheduling on upload is using the Timefold solver (timefoldClient) and not any old local scheduler.
+
+Do the following:
+
+Find the Excel upload handler
+
+Locate the backend route / controller that handles the CSV/Excel upload and triggers the schedule generation (for example something like /api/upload, /api/schedule/import, or similar).
+
+Identify exactly where, after parsing the Excel, the schedule is being generated.
+
+Ensure it calls Timefold, not any old algorithm
+
+If the upload handler is still:
+
+calling any function from server/scheduler.ts, or
+
+directly assigning timeslots without using Timefold,
+then replace that logic so that it:
+
+Builds the same input structure used by /api/schedule/generate.
+
+Calls timefoldClient.solveSchedule(...).
+
+Uses the returned solved lessons to persist and return the schedule.
+
+The Excel upload flow should use the same Timefold-based solving path as /api/schedule/generate.
+
+Add explicit debug logs
+
+In the upload handler, just before calling Timefold, log:
+
+console.log("=== UPLOAD: CALLING TIMEFOLD SOLVER ===");
+
+
+In server/timefoldClient.ts, inside solveSchedule():
+
+Log before the HTTP request:
+
+console.log("=== TIMEFOLD SOLVER CALLED ===");
+
+
+Log after receiving a successful response:
+
+console.log("=== TIMEFOLD SOLVER RESPONSE RECEIVED ===");
+
+
+Remove / disable any fallback solver in the upload path
+
+Make sure there is no fallback to the old greedy/backtracking logic in the upload flow.
+
+If Timefold is not reachable, the upload-based scheduling should fail with a clear error, not silently fall back to a local algorithm.
+
+Result
+
+After these changes:
+
+When I upload an Excel file, the backend must always:
+
+Log the three messages above, and
+
+Call http://localhost:8080/api/schedule/solve via timefoldClient.
+
+The UI behavior (auto-scheduling on upload, filters, AM/PM times) must remain the same.
+
+Please implement these changes and ensure the project still compiles and runs.

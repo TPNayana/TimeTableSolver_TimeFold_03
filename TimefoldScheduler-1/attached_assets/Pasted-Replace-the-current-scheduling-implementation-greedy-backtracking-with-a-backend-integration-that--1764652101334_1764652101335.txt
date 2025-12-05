@@ -1,0 +1,81 @@
+Replace the current scheduling implementation (greedy/backtracking) with a backend integration that uses Timefold as an external solver service.
+
+What to do
+
+Remove the existing greedy/backtracking scheduling logic from server/scheduler.ts and stop using it in /api/schedule/generate.
+
+Create a new solver client (e.g. server/timefoldClient.ts) that sends the scheduling data to a Timefold Java backend service and receives the optimized schedule in response.
+
+The Timefold service will be based on:
+https://github.com/TimefoldAI/timefold-quickstarts.git (school-timetabling example)
+
+Assume the Timefold Java solver exposes an endpoint:
+POST http://localhost:8080/api/schedule/solve
+
+Request payload format to send from Node backend to Timefold:
+{
+  "timeslots": [
+    {
+      "id": "MON_08",
+      "dayOfWeek": "MONDAY",
+      "startTime": "08:00",
+      "endTime": "09:00"
+    }
+  ],
+  "lessons": [
+    {
+      "id": "L1",
+      "subject": "DBMS",
+      "teacher": "Suraj",
+      "studentGroup": "CSE A",
+      "department": "CSE",
+      "timeslotId": null
+    }
+  ]
+}
+
+Response payload format expected from Timefold:
+{
+  "lessons": [
+    {
+      "id": "L1",
+      "subject": "DBMS",
+      "teacher": "Suraj",
+      "studentGroup": "CSE A",
+      "department": "CSE",
+      "timeslotId": "MON_08"
+    }
+  ]
+}
+
+Update the API route
+
+Modify /api/schedule/generate so that:
+
+It calls the new timefoldClient.solveSchedule() instead of the greedy scheduler
+
+Maps the returned lessons back to the frontend format
+
+Returns the solved timetable to the React UI
+
+Constraints to enforce on the Timefold side
+
+A teacher cannot teach two classes in the same timeslot
+
+A student group cannot attend two classes in the same timeslot
+
+No overlapping classes in the same day/time slot
+
+Monday–Friday, 08:00 AM–05:00 PM (1-hour slots)
+
+Frontend expectations
+
+No UI changes required, existing filters, AM/PM display, and interactions must stay working
+
+Only the backend solver changes
+
+Show loading state while waiting for solver results
+
+Deliverable
+
+Remove the local algorithms and integrate Timefold as the scheduling engine by replacing the logic in /api/schedule/generate with calls to the Timefold solver service via HTTP using timefoldClient.ts.

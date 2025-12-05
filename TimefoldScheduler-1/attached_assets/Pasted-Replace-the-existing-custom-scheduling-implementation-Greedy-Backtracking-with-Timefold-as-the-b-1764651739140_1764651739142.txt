@@ -1,0 +1,55 @@
+Replace the existing custom scheduling implementation (Greedy / Backtracking) with Timefold as the backend solver. Timefold must generate the optimized timetable schedule based on the constraints and return the solved schedule to the frontend.
+
+Requirements
+
+Remove the existing Greedy and Backtracking scheduling logic completely.
+
+Integrate Timefold using the backend architecture demonstrated in:
+https://github.com/TimefoldAI/timefold-quickstarts.git
+Use the school timetabling quickstart as the base reference for required entities, planning variables, constraints, and solver configuration.
+
+Implement Timefold as the solver service so that:
+
+The frontend sends scheduling input data (from uploaded Excel or demo dataset).
+
+Timefold processes the schedule and applies constraints.
+
+The optimized schedule is returned to the frontend as JSON for rendering in the timetable UI.
+
+Data Handling
+
+Input dataset: extracted from uploaded Excel (or demo dataset if no Excel uploaded yet).
+
+Pass timetable items to Timefold in the required planning format.
+
+Output should include the assigned timeslots for each class.
+
+Constraints (must be enforced by Timefold)
+
+A teacher cannot teach more than one class at the same time.
+
+A student group cannot attend two classes at the same time.
+
+Classes must not overlap within the same day/time slot.
+
+Time slots Monday–Friday, 08:00 AM–05:00 PM (1 hour per slot).
+
+Communication Layer
+
+Implement an endpoint to send initial problem data to Timefold.
+
+Implement an endpoint to receive the optimized solution.
+
+Ensure the frontend updates the calendar view when a solution is returned.
+
+Expected Output
+
+Timefold produces a conflict-free schedule.
+
+The frontend renders the final timetable with AM/PM display.
+
+Filters continue to operate client-side on the solved schedule.
+
+Deliverable
+
+Replace existing solver implementation with a Timefold-backed scheduling service using the Timefold quickstart repository as the foundation, ensuring a functional end-to-end solved timetable output.
