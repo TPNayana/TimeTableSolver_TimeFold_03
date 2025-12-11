@@ -2,6 +2,13 @@ import http from "http";
 import https from "https";
 
 const SOLVER_API_URL = process.env.SOLVER_API_URL || "http://127.0.0.1:8081";
+const SOLVER_API_TOKEN = process.env.SOLVER_API_TOKEN || "";
+
+function authHeaders(extra?: Record<string, string>) {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  if (SOLVER_API_TOKEN) headers["Authorization"] = `Bearer ${SOLVER_API_TOKEN}`;
+  return headers;
+}
 
 function requestRaw(method: string, url: string, body?: string, headers?: Record<string, string>) {
   return new Promise<string>((resolve, reject) => {
@@ -23,22 +30,25 @@ function requestRaw(method: string, url: string, body?: string, headers?: Record
 
 export async function postText(path: string, text: string) {
   const url = `${SOLVER_API_URL}${path}`;
-  return requestRaw("POST", url, text, { "Content-Type": "application/json" });
+  console.log("=== TIMEFOLD SOLVER CALLED ===", { url, bytes: Buffer.byteLength(text || "") });
+  return requestRaw("POST", url, text, authHeaders({ "Content-Type": "application/json" }));
 }
 export async function getJson(path: string) {
   const url = `${SOLVER_API_URL}${path}`;
-  const raw = await requestRaw("GET", url);
+  const raw = await requestRaw("GET", url, undefined, authHeaders());
+  console.log("=== TIMEFOLD SOLVER RESPONSE RECEIVED ===", { url, size: raw.length });
   return JSON.parse(raw);
 }
 
 export async function startSolve(timetable: unknown) {
   const raw = await postText("/timetables", JSON.stringify(timetable));
-  try {
-    const obj = JSON.parse(raw);
-    return obj;
-  } catch {
-    const jobId = String(raw).trim();
-    return { jobId } as any;
+  const trimmedRaw = String(raw).trim();
+  // HEURISTIC: Timefold can return a raw Job ID string or a JSON object.
+  if (trimmedRaw.startsWith("{")) {
+    return JSON.parse(trimmedRaw);
+  } else {
+    // If it's not JSON, assume it is the raw Job ID string
+    return { jobId: trimmedRaw } as any;
   }
 }
 export async function getSolution(jobId: string) {

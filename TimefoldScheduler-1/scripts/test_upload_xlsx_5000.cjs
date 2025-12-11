@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 async function main() {
-  const filePath = path.resolve(__dirname, '../attached_assets/SampleTT_01_1764439100047.xlsx');
+  const filePath = path.resolve(__dirname, '../assets/minimal_timetable.xlsx');
   if (!fs.existsSync(filePath)) {
     console.error('Sample XLSX not found at', filePath);
     process.exit(1);

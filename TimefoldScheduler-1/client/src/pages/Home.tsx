@@ -2,13 +2,16 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+// Ensure we import the real CalendarGrid, not any examples stub
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { DailyView } from "@/components/DailyView";
 import { UploadModal } from "@/components/UploadModal";
+// Ensure we import the real EditClassModal
 import { EditClassModal } from "@/components/EditClassModal";
+// Ensure we import the real ConflictBanner
 import { ConflictBanner } from "@/components/ConflictBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 interface ClassEvent {
@@ -41,7 +44,36 @@ export default function Home() {
 
   const { data: events = [], isLoading } = useQuery<ClassEvent[]>({
     queryKey: ['/api/classes/enriched'],
+    queryFn: getQueryFn<ClassEvent[]>({ on401: 'throw' }),
+    // Poll every 2 seconds to reflect solver progress
+    refetchInterval: 2000,
+    refetchOnWindowFocus: false,
   });
+
+  // Lightweight solving status indicator based on last jobId stored by UploadModal
+  const [lastJobId, setLastJobId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('lastJobId');
+    } catch {
+      return null;
+    }
+  });
+
+  const { data: solveStatus } = useQuery<{ solverStatus?: string } | null>({
+    queryKey: lastJobId ? ['/api/solution/status', `?jobId=${encodeURIComponent(lastJobId)}`] : ['idle-status'],
+    enabled: !!lastJobId,
+    refetchInterval: 2000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (lastJobId && String(solveStatus?.solverStatus) === 'NOT_SOLVING') {
+    try {
+      localStorage.removeItem('lastJobId');
+    } catch {}
+    setLastJobId(null);
+    // ensure latest schedule is shown once solving completes
+    queryClient.invalidateQueries({ queryKey: ['/api/classes/enriched'] });
+  }
 
   // Extract unique filter options dynamically from data
   const uniqueTeachers = Array.from(new Set(events.map(e => e.teacherName))).sort();
@@ -207,6 +239,11 @@ export default function Home() {
                 <h2 className="text-lg font-semibold" data-testid="text-page-title">
                   {viewMode === "daily" ? `Daily Schedule - ${selectedDay}` : "Weekly Schedule"}
                 </h2>
+                {lastJobId && (
+                  <span className="ml-2 inline-flex items-center text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                    {String(solveStatus?.solverStatus || 'SOLVING')}
+                  </span>
+                )}
               </div>
               <ThemeToggle />
             </header>
