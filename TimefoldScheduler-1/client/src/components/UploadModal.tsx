@@ -60,14 +60,19 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
+      console.log("[UploadModal] Sending POST to /api/upload-csv");
       const res = await fetch('/api/upload-csv', {
         method: 'POST',
         body: formData,
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Failed to upload file');
+        let message = 'Failed to upload file';
+        try {
+          const errorData = await res.json();
+          message = errorData.details || errorData.error || message;
+        } catch {}
+        throw new Error(message);
       }
 
       const result = await res.json();
@@ -80,6 +85,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
 
       const jobId: string | undefined = result.jobId;
       if (jobId) {
+        try { localStorage.setItem('lastJobId', jobId); } catch {}
         // Poll backend status for up to ~60s and refresh classes when solve completes
         for (let i = 0; i < 60; i++) {
           await new Promise(r => setTimeout(r, 1000));
@@ -90,6 +96,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               if (String(status?.solverStatus) === 'NOT_SOLVING') {
                 await queryClient.invalidateQueries({ queryKey: ['/api/classes'] });
                 await queryClient.invalidateQueries({ queryKey: ['/api/classes/enriched'] });
+                try { localStorage.removeItem('lastJobId'); } catch {}
                 toast({ title: 'Schedule generated', description: 'Solver completed and schedule has been updated.' });
                 break;
               }

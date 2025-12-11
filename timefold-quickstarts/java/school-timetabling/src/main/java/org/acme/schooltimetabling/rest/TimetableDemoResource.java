@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import org.acme.schooltimetabling.domain.Lesson;
 import org.acme.schooltimetabling.domain.Room;
 import org.acme.schooltimetabling.domain.Timeslot;
+import org.acme.schooltimetabling.domain.TeacherAvailability;
 import org.acme.schooltimetabling.domain.Timetable;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
@@ -203,7 +204,9 @@ public class TimetableDemoResource {
             lessons.add(new Lesson(Long.toString(nextLessonId++), "Physical education", "C. Lewis", "12th grade"));
             lessons.add(new Lesson(Long.toString(nextLessonId++), "Physical education", "C. Lewis", "12th grade"));
         }
-        return Response.ok(new Timetable(demoData.name(), timeslots, rooms, lessons)).build();
+        // Provide an empty teacher availability list for demo data to satisfy constructor
+        List<TeacherAvailability> teacherAvailabilities = new ArrayList<>();
+        return Response.ok(new Timetable(demoData.name(), timeslots, rooms, teacherAvailabilities, lessons)).build();
     }
 
 }

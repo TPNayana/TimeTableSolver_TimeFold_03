@@ -108,27 +108,67 @@ async function persistSolution(solution: any, originalLessonsById: Map<string, a
     return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   };
   const teacherLessons: Map<string, any[]> = new Map();
+  const groupLessons: Map<string, any[]> = new Map();
+  const roomUsageBySlot: Map<string, Set<string>> = new Map();
+  const createdSummary: Array<{ teacher: string; day: string; startTime: string; endTime: string; course: string; group: string }>[] = [] as any;
+  const skipped: Array<{ id: string; teacher: string; reason: string }> = [];
   for (const l of lessons) {
     if (!l.timeslot) continue;
     const ts = parseTimeslotId(String(l.timeslot), endMap);
     const course = courseByName.get(String(l.subject));
     const teacher = teacherByName.get(String(l.teacher));
     const group = groupByName.get(String(l.studentGroup));
-    if (!course || !teacher || !group) continue;
+    if (!course || !teacher || !group) { skipped.push({ id: String(l.id), teacher: String(l.teacher), reason: 'missing entity' }); continue; }
     const orig = originalLessonsById.get(String(l.id));
     const avKey = `${teacher.name}|${ts.day}`;
     const windows = avByTeacherDay.get(avKey) || [];
     if (windows.length > 0) {
       const inside = windows.some(w => ts.startTime >= w.startTime && ts.endTime <= w.endTime);
-      if (!inside) continue;
+      if (!inside) { skipped.push({ id: String(l.id), teacher: teacher.name, reason: `outside availability (${ts.day} ${ts.startTime}-${ts.endTime})` }); continue; }
     }
     const existingLessons = teacherLessons.get(teacher.id) || [];
-    const violatesBuffer = existingLessons.some(el => ts.startTime < addMinutes(el.endTime, 15) && ts.startTime >= el.startTime);
-    if (violatesBuffer) continue;
+    const overlapsTeacher = existingLessons.some(el => !(ts.endTime <= el.startTime || ts.startTime >= el.endTime));
+    if (overlapsTeacher) { skipped.push({ id: String(l.id), teacher: teacher.name, reason: 'teacher double-booked' }); continue; }
+    const existingGroupLessons = groupLessons.get(group.id) || [];
+    const overlapsGroup = existingGroupLessons.some(el => !(ts.endTime <= el.startTime || ts.startTime >= el.endTime));
+    if (overlapsGroup) { skipped.push({ id: String(l.id), teacher: teacher.name, reason: `group overlap (${group.name})` }); continue; }
+    // Enforce room occupancy if solver provided room
+    const slotKey = `${ts.day}|${ts.startTime}|${ts.endTime}`;
+    if (l.room) {
+      const usedRooms = roomUsageBySlot.get(slotKey) || new Set<string>();
+      if (usedRooms.has(String(l.room))) { skipped.push({ id: String(l.id), teacher: teacher.name, reason: `room overlap (${String(l.room)})` }); continue; }
+      usedRooms.add(String(l.room));
+      roomUsageBySlot.set(slotKey, usedRooms);
+    } else {
+      // If no room assigned, skip persistence to avoid invalid schedule
+      skipped.push({ id: String(l.id), teacher: teacher.name, reason: 'no room assigned' });
+      continue;
+    }
     await storage.createClass({ courseId: course.id, teacherId: teacher.id, studentGroupId: group.id, day: ts.day, startTime: ts.startTime, endTime: ts.endTime, hasConflict: false, meetingLink: orig?.meetingLink || null });
     existingLessons.push({ startTime: ts.startTime, endTime: ts.endTime });
     teacherLessons.set(teacher.id, existingLessons);
+    existingGroupLessons.push({ startTime: ts.startTime, endTime: ts.endTime });
+    groupLessons.set(group.id, existingGroupLessons);
+    createdSummary.push({ teacher: teacher.name, day: ts.day, startTime: ts.startTime, endTime: ts.endTime, course: course.name, group: group.name });
   }
+
+  // DEBUG: Print concise persisted schedule summary grouped by teacher
+  if (createdSummary.length > 0) {
+    const byTeacher = new Map<string, Array<string>>();
+    for (const it of createdSummary) {
+      const arr = byTeacher.get(it.teacher) || [];
+      arr.push(`${it.day} ${it.startTime}-${it.endTime} ${it.course} (${it.group})`);
+      byTeacher.set(it.teacher, arr);
+    }
+    console.log("[persist] Created classes summary:");
+    for (const [t, lines] of byTeacher.entries()) {
+      console.log(`  - ${t}: ${lines.join("; ")}`);
+    }
+  } else {
+    console.log("[persist] No classes persisted (filtered by strict availability/conflict checks)");
+  }
+
+  // No fallback scheduling: we will leave lessons unscheduled if invalid.
 }
 
 async function startAndPollSolve(timetable: any, originalLessons: any[]) {
@@ -151,9 +191,27 @@ async function startAndPollSolve(timetable: any, originalLessons: any[]) {
 }
 
 export async function registerRoutes(app: express.Express) {
+  // Clear all in-memory data to ensure strict "latest Excel only"
+  app.post("/api/clear", async (_req, res) => {
+    await clearAll();
+    res.json({ status: "ok" });
+  });
+
   app.get("/api/classes", async (_req, res) => {
     const classes = await storage.getAllClasses();
     res.json(classes);
+  });
+  app.get("/api/teachers", async (_req, res) => {
+    const teachers = await storage.getAllTeachers();
+    res.json(teachers);
+  });
+  app.get("/api/student-groups", async (_req, res) => {
+    const groups = await storage.getAllStudentGroups();
+    res.json(groups);
+  });
+  app.get("/api/courses", async (_req, res) => {
+    const courses = await storage.getAllCourses();
+    res.json(courses);
   });
   // Place enriched route BEFORE the id route to avoid path collision
   app.get("/api/classes/enriched", async (_req, res) => {
@@ -214,25 +272,13 @@ export async function registerRoutes(app: express.Express) {
     const existingClasses = await storage.getAllClasses();
     const conflictInfo = detectConflicts(updated as any, existingClasses);
 
-    // Enforce 15-minute buffer for the teacher in the same day
-    const addMinutes = (t: string, minutes: number) => {
-      const [h, m] = String(t).split(":").map(Number);
-      const total = h * 60 + m + minutes;
-      const hh = Math.floor(total / 60);
-      const mm = total % 60;
-      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-    };
-    const teacherLessons = existingClasses.filter(c => c.teacherId === updated.teacherId && c.id !== req.params.id && c.day === updated.day);
-    const violatesBuffer = teacherLessons.some(c => {
-      const bufferEnd = addMinutes(c.endTime, 15);
-      return updated.startTime < bufferEnd && updated.startTime >= c.startTime; // starts within 15 min of previous
-    });
-
-    const saved = await storage.updateClass(req.params.id, { ...updated, hasConflict: conflictInfo.hasConflict || violatesBuffer });
-    res.json({ ...saved, conflictInfo, bufferViolation: violatesBuffer });
+    // Buffer logic removed: strict conflicts only
+    const saved = await storage.updateClass(req.params.id, { ...updated, hasConflict: conflictInfo.hasConflict });
+    res.json({ ...saved, conflictInfo });
   });
 
   app.post("/api/upload-csv", upload.single("file"), async (req, res) => {
+    console.log("--> RECEIVED UPLOAD REQUEST");
     try {
       if (!req.file || !req.file.buffer) {
         return res.status(400).json({ error: "Failed to process file", details: "No file uploaded" });
@@ -240,9 +286,7 @@ export async function registerRoutes(app: express.Express) {
       const parsed = parseExcel(req.file.buffer);
       console.log(`[upload] parsed: timeslots=${parsed.timeslots.length} rooms=${parsed.rooms.length} lessons=${parsed.lessons.length}`);
       const validation = buildValidation(parsed);
-      if (validation.conflicts.length > 0) {
-        return res.status(409).json({ error: "Scheduling conflicts", conflicts: validation.conflicts, warnings: validation.warnings, suggestions: validation.suggestions });
-      }
+      // Do not block uploads on pre-validation conflicts. Proceed to solve and persist only valid results.
       await clearAll();
       for (const t of parsed.teachers) await storage.createTeacher(t);
       for (const g of parsed.studentGroups) await storage.createStudentGroup(g);
@@ -262,8 +306,9 @@ export async function registerRoutes(app: express.Express) {
         await storage.createTeacherAvailability({ teacher: a.teacher, day: uiDay, startTime: a.startTime, endTime: a.endTime });
       }
       const missingLinks = parsed.lessons.filter(l => !l.meetingLink).length;
+      console.log("=== UPLOAD: CALLING TIMEFOLD SOLVER ===");
       const { jobId } = await startAndPollSolve({ timeslots: parsed.timeslots, rooms: parsed.rooms, lessons: parsed.lessons, teacherAvailabilities: parsed.teacherAvailabilities }, parsed.lessons);
-      res.json({ message: "Upload successful", summary: { teachers: parsed.teachers.length, studentGroups: parsed.studentGroups.length, courses: parsed.courses.length, lessons: parsed.lessons.length, missingMeetingLinks: missingLinks }, data: parsed, jobId, warnings: [...validation.warnings, ...(missingLinks > 0 ? [`${missingLinks} lesson(s) missing MeetingLink`] : [])] });
+      res.json({ message: "Upload accepted; solving in background", summary: { teachers: parsed.teachers.length, studentGroups: parsed.studentGroups.length, courses: parsed.courses.length, lessons: parsed.lessons.length, missingMeetingLinks: missingLinks }, data: parsed, jobId, warnings: [...validation.warnings, ...(missingLinks > 0 ? [`${missingLinks} lesson(s) missing MeetingLink`] : [])], conflicts: validation.conflicts, suggestions: validation.suggestions });
     } catch (e: any) {
       console.error(`[upload] error:`, e);
       res.status(400).json({ error: "Failed to process file", details: e?.message || String(e) });
