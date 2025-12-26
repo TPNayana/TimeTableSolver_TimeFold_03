@@ -14,6 +14,7 @@ public class Lesson {
     private String subject;
     private String teacher;
     private String studentGroup;
+    private String meetingLink;  // ADD THIS FIELD
 
     @JsonIdentityReference
     @PlanningVariable
@@ -62,6 +63,15 @@ public class Lesson {
 
     public String getStudentGroup() {
         return studentGroup;
+    }
+
+    // ADD GETTER AND SETTER FOR MEETINGLINK
+    public String getMeetingLink() {
+        return meetingLink;
+    }
+
+    public void setMeetingLink(String meetingLink) {
+        this.meetingLink = meetingLink;
     }
 
     public Timeslot getTimeslot() {

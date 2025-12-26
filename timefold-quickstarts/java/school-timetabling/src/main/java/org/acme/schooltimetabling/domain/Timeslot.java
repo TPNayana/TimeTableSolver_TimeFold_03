@@ -1,58 +1,27 @@
 package org.acme.schooltimetabling.domain;
 
-import java.time.DayOfWeek;
-import java.time.LocalTime;
-
-import ai.timefold.solver.core.api.domain.lookup.PlanningId;
-import com.fasterxml.jackson.annotation.JsonIdentityInfo;
-import com.fasterxml.jackson.annotation.ObjectIdGenerators;
-
-@JsonIdentityInfo(scope = Timeslot.class, generator = ObjectIdGenerators.PropertyGenerator.class, property = "id")
 public class Timeslot {
-
-    @PlanningId
     private String id;
-
-    private DayOfWeek dayOfWeek;
-    private LocalTime startTime;
-    private LocalTime endTime;
-
-    public Timeslot() {
-    }
-
-    public Timeslot(String id, DayOfWeek dayOfWeek, LocalTime startTime, LocalTime endTime) {
+    private String day;
+    private String startTime;
+    private String endTime;
+    
+    public Timeslot() {}
+    
+    public Timeslot(String id, String day, String startTime, String endTime) {
         this.id = id;
-        this.dayOfWeek = dayOfWeek;
+        this.day = day;
         this.startTime = startTime;
         this.endTime = endTime;
     }
-
-    public Timeslot(String id, DayOfWeek dayOfWeek, LocalTime startTime) {
-        this(id, dayOfWeek, startTime, startTime.plusMinutes(50));
-    }
-
-    @Override
-    public String toString() {
-        return dayOfWeek + " " + startTime;
-    }
-
-    // ************************************************************************
+    
     // Getters and setters
-    // ************************************************************************
-
-    public String getId() {
-        return id;
-    }
-
-    public DayOfWeek getDayOfWeek() {
-        return dayOfWeek;
-    }
-
-    public LocalTime getStartTime() {
-        return startTime;
-    }
-
-    public LocalTime getEndTime() {
-        return endTime;
-    }
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getDay() { return day; }
+    public void setDay(String day) { this.day = day; }
+    public String getStartTime() { return startTime; }
+    public void setStartTime(String startTime) { this.startTime = startTime; }
+    public String getEndTime() { return endTime; }
+    public void setEndTime(String endTime) { this.endTime = endTime; }
 }

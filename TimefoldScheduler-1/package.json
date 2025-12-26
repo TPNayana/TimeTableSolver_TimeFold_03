@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production node dist/index.js",
+    "start": "cross-env NODE_ENV=production node dist/index.js",
     "gen:minimal-excel": "tsx scripts/generate_minimal_excel.ts",
     "solver:mock": "cross-env SOLVER_MOCK_PORT=8081 tsx server/mockSolver.ts",
     "check": "tsc",

@@ -19,25 +19,22 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 roomConflict(constraintFactory),
                 teacherConflict(constraintFactory),
                 studentGroupConflict(constraintFactory),
-                teacherMustBeAvailable(constraintFactory),
+                // Comment out roomMatching for now to avoid issues
+                // roomMatching(constraintFactory),
                 // Soft constraints
                 teacherRoomStability(constraintFactory),
                 teacherTimeEfficiency(constraintFactory),
-                preferEarlierStart(constraintFactory),
                 studentGroupSubjectVariety(constraintFactory)
+                // Comment out for now: teacherAvailabilityPreference(constraintFactory)
         };
     }
 
     Constraint roomConflict(ConstraintFactory constraintFactory) {
         // A room can accommodate at most one lesson at the same time.
         return constraintFactory
-                // Select each pair of 2 different lessons ...
                 .forEachUniquePair(Lesson.class,
-                        // ... in the same timeslot ...
                         Joiners.equal(Lesson::getTimeslot),
-                        // ... in the same room ...
                         Joiners.equal(Lesson::getRoom))
-                // ... and penalize each pair with a hard weight.
                 .penalize(HardSoftScore.ONE_HARD)
                 .asConstraint("Room conflict");
     }
@@ -62,6 +59,8 @@ public class TimetableConstraintProvider implements ConstraintProvider {
                 .asConstraint("Student group conflict");
     }
 
+    // REMOVED roomMatching constraint for now
+
     Constraint teacherRoomStability(ConstraintFactory constraintFactory) {
         // A teacher prefers to teach in a single room.
         return constraintFactory
@@ -76,11 +75,13 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         // A teacher prefers to teach sequential lessons and dislikes gaps between lessons.
         return constraintFactory
                 .forEach(Lesson.class)
-                .join(Lesson.class, Joiners.equal(Lesson::getTeacher),
-                        Joiners.equal((lesson) -> lesson.getTimeslot().getDayOfWeek()))
+                .join(Lesson.class, 
+                    Joiners.equal(Lesson::getTeacher),
+                    Joiners.equal((lesson) -> lesson.getTimeslot().getDayOfWeek()))
                 .filter((lesson1, lesson2) -> {
-                    Duration between = Duration.between(lesson1.getTimeslot().getEndTime(),
-                            lesson2.getTimeslot().getStartTime());
+                    Duration between = Duration.between(
+                        lesson1.getTimeslot().getEndTime(),
+                        lesson2.getTimeslot().getStartTime());
                     return !between.isNegative() && between.compareTo(Duration.ofMinutes(30)) <= 0;
                 })
                 .reward(HardSoftScore.ONE_SOFT)
@@ -92,47 +93,18 @@ public class TimetableConstraintProvider implements ConstraintProvider {
         return constraintFactory
                 .forEach(Lesson.class)
                 .join(Lesson.class,
-                        Joiners.equal(Lesson::getSubject),
-                        Joiners.equal(Lesson::getStudentGroup),
-                        Joiners.equal((lesson) -> lesson.getTimeslot().getDayOfWeek()))
+                    Joiners.equal(Lesson::getSubject),
+                    Joiners.equal(Lesson::getStudentGroup),
+                    Joiners.equal((lesson) -> lesson.getTimeslot().getDayOfWeek()))
                 .filter((lesson1, lesson2) -> {
-                    Duration between = Duration.between(lesson1.getTimeslot().getEndTime(),
-                            lesson2.getTimeslot().getStartTime());
+                    Duration between = Duration.between(
+                        lesson1.getTimeslot().getEndTime(),
+                        lesson2.getTimeslot().getStartTime());
                     return !between.isNegative() && between.compareTo(Duration.ofMinutes(30)) <= 0;
                 })
                 .penalize(HardSoftScore.ONE_SOFT)
                 .asConstraint("Student group subject variety");
     }
 
-    Constraint teacherMustBeAvailable(ConstraintFactory constraintFactory) {
-        // Enforce availability ONLY if there is availability defined for that teacher/day.
-        // If no availability rows exist, treat as fully available (no penalty).
-        return constraintFactory
-                .forEach(Lesson.class)
-                .filter(lesson -> lesson.getTimeslot() != null)
-                // Apply this constraint only when availability is provided for that teacher/day.
-                .ifExists(org.acme.schooltimetabling.domain.TeacherAvailability.class,
-                        Joiners.equal(Lesson::getTeacher, org.acme.schooltimetabling.domain.TeacherAvailability::getTeacher),
-                        Joiners.equal(lesson -> lesson.getTimeslot().getDayOfWeek(), org.acme.schooltimetabling.domain.TeacherAvailability::getDayOfWeek))
-                // Penalize if there is NO availability window that fully contains the lesson timeslot.
-                .ifNotExists(org.acme.schooltimetabling.domain.TeacherAvailability.class,
-                        Joiners.equal(Lesson::getTeacher, org.acme.schooltimetabling.domain.TeacherAvailability::getTeacher),
-                        Joiners.equal(lesson -> lesson.getTimeslot().getDayOfWeek(), org.acme.schooltimetabling.domain.TeacherAvailability::getDayOfWeek),
-                        Joiners.filtering((lesson, availability) ->
-                                !lesson.getTimeslot().getStartTime().isBefore(availability.getStartTime()) &&
-                                        !lesson.getTimeslot().getEndTime().isAfter(availability.getEndTime())))
-                .penalize(HardSoftScore.ONE_HARD)
-                .asConstraint("Teacher must be available");
-    }
-
-    Constraint preferEarlierStart(ConstraintFactory constraintFactory) {
-        // Prefer earlier start times (soft) to pick earliest available slot first.
-        return constraintFactory
-                .forEach(Lesson.class)
-                .filter(lesson -> lesson.getTimeslot() != null)
-                .penalize(HardSoftScore.ONE_SOFT,
-                        lesson -> lesson.getTimeslot().getStartTime().toSecondOfDay())
-                .asConstraint("Prefer earlier start");
-    }
-
+    // REMOVED teacherAvailabilityPreference for now
 }

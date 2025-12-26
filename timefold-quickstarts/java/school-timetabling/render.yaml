@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: timetable-solver-java
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: QUARKUS_PROFILE
+        value: prod
+    healthCheckPath: /q/health
+    autoDeploy: true
+    plan: free

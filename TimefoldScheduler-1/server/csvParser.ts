@@ -36,34 +36,71 @@ function normalizeDay(value: unknown): DayKey {
 
 function normalizeTimeCell(v: unknown): string {
   if (v == null) return "";
+  
+  // Handle Excel time values (numbers between 0 and 1)
   if (typeof v === "number" && !Number.isNaN(v)) {
-    // Excel numeric date/time: use ONLY the fractional part as time-of-day
     const frac = v >= 1 ? v - Math.floor(v) : v;
     const totalMinutes = Math.round(frac * 24 * 60);
     const hh = Math.floor(totalMinutes / 60);
     const mm = totalMinutes % 60;
     return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   }
+  
   const raw = String(v).trim();
   if (!raw) return "";
-  // HH:MM:SS → HH:MM
+  
+  // Handle HH:MM:SS format
   if (/^\d{1,2}:\d{2}:\d{2}$/.test(raw)) {
     const [h, m] = raw.split(":");
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   }
-  // ISO or date-time strings → extract first HH:MM occurrence
-  const dtMatch = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
-  if (dtMatch) {
-    const h = parseInt(dtMatch[1], 10);
-    const m = parseInt(dtMatch[2], 10);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  
+  // Handle AM/PM format - ENHANCED VERSION
+  const ampmMatch = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)$/i);
+  if (ampmMatch) {
+    let hours = parseInt(ampmMatch[1], 10);
+    const minutes = parseInt(ampmMatch[2], 10);
+    const meridiem = ampmMatch[3].toUpperCase();
+    
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   }
-  // Support HH:MM, H.MM and AM/PM variants like "8:00 am", "8.00 PM", "8am"
+  
+  // Also handle AM/PM without minutes (e.g., "9 AM")
+  const ampmMatch2 = raw.match(/^(\d{1,2})\s*(AM|PM|am|pm)$/i);
+  if (ampmMatch2) {
+    let hours = parseInt(ampmMatch2[1], 10);
+    const meridiem = ampmMatch2[2].toUpperCase();
+    
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    
+    return `${String(hours).padStart(2, "0")}:00`;
+  }
+  
+  // Handle Excel time with AM/PM in different formats
+  const dtMatch = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM|am|pm)?/i);
+  if (dtMatch) {
+    let hours = parseInt(dtMatch[1], 10);
+    const minutes = parseInt(dtMatch[2], 10);
+    const meridiem = (dtMatch[3] || "").toUpperCase();
+    
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+  
+  // Handle HH:MM format
   if (/^\d{1,2}:\d{2}$/.test(raw)) return raw;
+  
   if (/^\d{1,2}[.:]\d{2}$/.test(raw)) {
     const parts = raw.replace(".", ":").split(":");
     return `${String(parts[0]).padStart(2, "0")}:${String(parts[1]).padStart(2, "0")}`;
   }
+  
   const m = raw.match(/^(\d{1,2})(?:[:.′]?(\d{0,2}))\s*(am|pm)?$/i);
   if (m) {
     let hours = parseInt(m[1] || "0", 10);
@@ -73,6 +110,7 @@ function normalizeTimeCell(v: unknown): string {
     if (meridiem === "AM" && hours === 12) hours = 0;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   }
+  
   return raw;
 }
 
@@ -128,7 +166,6 @@ export function parseExcel(buffer: Buffer) {
   const sheetNames = wb.SheetNames || [];
   console.log(`[excel] sheet names: ${JSON.stringify(sheetNames)}`);
 
-  // Read all sheets, we will detect types by headers so arbitrary names work.
   const allSheets = (wb.SheetNames || []).map((name) => ({
     name,
     rows: readSheetExact(wb, name) || [],
@@ -144,7 +181,6 @@ export function parseExcel(buffer: Buffer) {
     return aliases.some((a) => p.has(a));
   };
 
-  // Detect candidate sheets by headers
   const findTimeslots = () => {
     for (const s of allSheets) {
       const headers = headerSet(s.rows).map((h) => String(h).trim().toLowerCase());
@@ -200,7 +236,6 @@ export function parseExcel(buffer: Buffer) {
   console.log(`[excel] Room headers: ${JSON.stringify(roomHeaders)}, types: ${JSON.stringify(detectTypes(roomRows))}`);
   console.log(`[excel] Lesson headers: ${JSON.stringify(lessonHeaders)}, types: ${JSON.stringify(detectTypes(lessonRows))}`);
   console.log(`[excel] TeacherAvailability headers: ${JSON.stringify(availabilityHeaders)}, types: ${JSON.stringify(detectTypes(availabilityRows))}`);
-  // Validate required headers
   const requireHeader = (headers: string[], required: string[], sheetName: string) => {
     const lowered = headers.map((h) => String(h).trim().toLowerCase());
     const synonyms: Record<string, string[]> = {
@@ -212,6 +247,7 @@ export function parseExcel(buffer: Buffer) {
       Subject: ["subject", "course", "subject name"],
       Teacher: ["teacher", "teachername"],
       StudentGroup: ["studentgroup", "student group", "group"],
+      MeetingLink: ["meetinglink", "link", "meeting link"],
     };
     for (const r of required) {
       const rkey = String(r).trim().toLowerCase();
@@ -250,7 +286,6 @@ export function parseExcel(buffer: Buffer) {
     }
     const linkRaw = mapped.link ?? (row as any)["link"];
     const link = linkRaw != null ? cleanText(linkRaw) || null : null;
-    // Use room name as stable ID for Timefold @PlanningId
     return { id: name, name, link };
   }).filter(Boolean) as { id: string; name: string; link: string | null }[];
 
@@ -312,17 +347,14 @@ export function parseExcel(buffer: Buffer) {
         console.warn(`[Parser] Skipping invalid availability row: ${JSON.stringify(row)}`);
         return null;
       }
-      // Use row index as stable string ID for Timefold @PlanningId
       const id = String(i + 1);
       return { id, teacher, dayOfWeek, startTime, endTime };
     })
     .filter(Boolean) as { id: string; teacher: string; dayOfWeek: DayKey; startTime: string; endTime: string }[];
-  // Strict mode: do not synthesize timeslots from availability; use Timeslots sheet only.
   console.log(`[excel] parsed counts: timeslots=${timeslots.length}, rooms=${rooms.length}, lessons=${lessons.length}, availabilities=${teacherAvailabilities.length}`);
   console.log(`[Parser] Found ${lessonRows.length} raw lesson rows.`);
   console.log(`[Parser] First parsed lesson:`, lessons[0]);
   console.log(`[Parser] Parsed ${lessons.length} valid lessons, ${timeslots.length} timeslots, ${rooms.length} rooms.`);
-  // Verification: detect teachers present in lessons but missing availability entries
   const lessonTeachers = new Set(lessons.map(l => cleanText(l.teacher).toUpperCase()));
   const availabilityTeachers = new Set(teacherAvailabilities.map(a => cleanText(a.teacher).toUpperCase()));
   const missingTeachers = Array.from(lessonTeachers).filter(t => !availabilityTeachers.has(t));
